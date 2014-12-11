@@ -304,14 +304,98 @@ Cloudlet bfs(overlayTree tree) {
 \section{Fault Tolerance}
 
 \subsection{Fault Sources}
+Our system is intended to be an Internet scale live streaming system. In a large scale, all the components may fail and we must be able to tolerate all those failures. Here we identify the possible failures in different components and explain the possible effects of those failures to our system.
+
+\paragraph{client}
+Clients failures are normal, especially when clients are mobile or wearable devices. Network connection between those clients and the servers can easily break because a small movement in space. Besides, Users will usually not follow the best practise of using an application. It's very likely that they will just force the application the exit rather than gracefully exit it. Client devices also have a higher possibility to fail, OS breakdown and machine failures are all possible. To our system, client failures are considered normal and will not break our system, no matter the client is a sender or a receiver. Our system will detect those failures and clear inconsistent internal data structure and resources.
+
+\paragraph{cloudlet}
+Cloudlet failures are also possible. Possible causes are power failures, network partition, OS failures and hardware failures, etc. However, the possibility of cloudlet failures are much lower than the client failures beacuse they are well protected machines in a box. If the cloudlet server is down, the clients in the same LAN with the cloudlet cannot use our service till the cloudlet is back again. However, for clients in other LANs, our system guarantees that the fault will be fixed and their service will be back as long as the sender is working. Our fault tolerance protocol will mainly tolerate failures caused by cloudlets failures.
+
+\paragraph{metadata server}
+Metadata server failures are very unlikely because we built the server on Google AppEngine and used the high replicated datastore that will distribute data to different data centers. Google AppEngine will provide high availability to our system. However, in the extremely rare cases of Google's failure, our system is down. No more clients can send or receive streams. Only the currently working ones can use the old setting to continue use the service till they exit or other failures occurs.
 
 \subsection{Fault Tolerance Protocol}
-\begin{flushleft}
-asdadad
+All the cloudlet servers are distributed across the Internet. Every node may fail. We have a general distributed protocol to guide all the cloudlets to communicate with each other and make a systemwise good decision in case of failures. This protocol includes three major parts, failure detection, failure source identification and failure correction.
 
-\emph{\textbf cloudlet}\\
-asdadadaad
-\end{flushleft}
+\paragraph{failure detection}
+Failure detection is the first step in fault tolerance. To tolerate a fault, a cloudlet must first detect it. Our system uses stream monitor to detect a failure. Stream monitor on each cloudlet will monitor the incoming bandwidth for each stream. If the incoming bandwidth of a stream is zero, it means there must be some failures in this stream. It might be network paritition or machine failures. The root cause of the failure does not matter for that cloudlet to restore service. The effect of any kind of failure will cause incoming stream bandwidth to be zero. We only deal with faults when a failure has caused some real effects on some cloudlets. There might be inconsistencies in the cloudlet server's internal data structure and the metadata server's data structure. Those inconsistencies are most likely to be caused by failures. But we do not consider them as failures because it's very hard to know which failure on which machine caused the inconsistency.
+
+\paragraph{failure source identification}
+When on cloudlet failed, all the other cloudlets in the subtree rooted on that cloudlet will not get streaming data of that stream. However, we do not want all the cloudlets to start their restoration independently because this will cause a network reconfiguration chaos. The network structure will change a lot. Our approach is when a cloudlet detected failures on a stream, it will first identify the source of the failure. For a specific cloudlet, there are just two kinds of failure sources, its previous node failed or some nodes in prior to its previous node failed. To identify this, it will simply pass a inquiry to its previous node asking the status of that stream in the previous stream. If the previous node responded and the response is that it is also waiting for that stream, this cloudlet will know its previous node is fine and nodes prior to that have failures. Otherwise, it will mart its previous node as failed.
+
+
+\paragraph{failure correction}
+After identify the source of failure, the cloudlet will correct the failure. If the immediate previous node of this cloudlet is failed, this cloudlet will send a message to the metadata server asking for a re-scheduling and then create a pipe to that new node and clear the resources occupide by the old pipe. If the immediate previous node of this cloudlet is not the source of failure, it will do nothing and just belive that the immediate descendents of the failed node will fix the problem.
+
+\begin{figure}[t]
+\begin{center}
+\includegraphics[scale=0.3]{pic/fault_tolerance.png}
+\end{center}
+\caption{line structured overlay tree}
+\label{fig:fault_tolerance}
+\end{figure}
+
+The whole fault tolerance protocol is illustrated in Figure~\ref{fig:fault_tolerance}. The dotted green line means the network is working but no stream data is on that line. The brown line is the inquiry message to the previous node. Before each cloudlet that detected a failure to reschedule to another node. They will first identify the source of failures and based on its relative to the position of the failed node they will make different decisions. This approach can best keep the current tree structure and reduce control data.
+
+\section{Experiments}
+\subsection{Evaluation Objective}
+By doing the experiments, we want to prove that our system is effective. To be effective, our system needs to satisfy the following two requirements:
+
+\begin{enumerate}
+  \item It effectively reduce bandwidth consumption on WAN.
+  \item It best keep video quality
+\end{enumerate}
+
+Reducing bandwidth consumption on WAN is the primary goal of building this system. We want to reduce both the overall bandwidth consumption on WAN and on individual cloudlet server. 
+
+Best keep video quality means the video quality will not degrade in the transmitting process unless the network condition is to bad and we choose to degrade resolution in order to keep smoothness. To measure video quality, we use two parameters: bit rate in the receiving player and packet loss rate. If the player has almost the same bit rate as the sender, we think that the video quality is not degraded and a low packet loss rate represents that smoothness is good. By using these two parameters, we avoid the inaccuracy and troubles in human measurements.
+
+\subsection{Test Setting}
+\begin{table}[t]
+\begin{tabular}{|l|l|l|}
+\hline
+Component       & Location                & \#Instances\\ \hline
+Metadata Server & Google AppEngine        & 2               \\ \hline
+Cloudlet Server & OpenStack Cluster & 6               \\ \hline
+Sender Clients  & Amazon Web Service      & 6               \\ \hline
+Receive Clients & OpenStack Cluster & 10              \\ \hline
+\end{tabular}
+\caption{Cluster configuration}
+\label{table:cluster}
+\end{table}
+
+\paragraph{Cluster Configuration}
+To test our system, we used clusters on AWS, Google AppEngine and a local OpenStack cluster. The specific cluster configuration is listed in Table~\ref{table:cluster}.
+
+\begin{table}[h]
+\begin{tabular}{|l|l|}
+\hline
+Network Link & Link Bandwidth (Mbps) \\ \hline
+Client -\textgreater Cloudlet & 746 \\ \hline
+Cloudlet -\textgreater Cloudlet & 1.5 \\ \hline
+Cloudlet -\textgreater Client & 932 \\ \hline
+\end{tabular}
+\caption{Network parameters}
+\label{table:network}
+\end{table}
+
+\paragraph{Network Parameters}
+To measure the performance of our system, network configuration and parameters are very important. In our experiments, we used WonderShaper~\cite{wondershaper} to do traffic control and the network parameter after shaping is listed in Table~\ref{table:network}.
+
+\paragraph{Video Parameters}
+To make testing process easy and repeatable and scalable, we choose to use a video clip and use the rtsp protocol, which is a widely used real time video transmitting protocol to upload it to the cloudlet server. This way, everytime we do the experiment, data is the same and from the server's view it is just like a live streaming video. The video clip we choose is movie Sintel~\cite{sintel} from Durian open movie project. We used 640X480 resolution and the average bit rate under this resolution is 483 kbits/s.
+
+\subsection{Single Stream Multiple Viewers Performance}
+\subsection{Multiple Streams Multiple Viewers Performance}
+\subsection{Fault Tolarance Test}
+
+
+
+
+
+
+
 
 
 
