@@ -247,18 +247,71 @@ Metadata server is the most important part in the whole system. It constructs, e
 Metadata server opens APIs for cloudlet control servers. Only the control server will call those APIs. They are completely hidden to clients. Those APIs are:
 
 \begin{itemize}
-  \item openStream(userName, appName, streamName, streamBandwidth)
-  \item closeStream(userName, appName, streamName)
-  \item joinStream(userName, appName, streamName)
-  \item exitStream(userName, appName, streamName)
+  \item initNode(cloudletName, maxBandwidth)
+  \item createTree(cloudletName, appName, streamName, streamBandwidth)
+  \item exitTree(appName, streamName)
+  \item joinTree(cloudletName, appName, streamName)
+  \item heartbeat(cloudletName, cloudletStatus, streamStatus)
 \end{itemize}
 
+\emph{initNode} will be called when the cloudlet starts service. It will only be called once. When the metadata server receives this request, it will create a cloudlet data structure to represent the cloudlet which initiates the request. An important parameter of this API is the \emph{streamBandwidth}. It's the maximum bandwidth the cloudlet thinks it has and the metadata server will not break this whenever it has another option.
+
+The control server will call \emph{createTree} when a client requests broadcasting a stream. Metadata server will create an overlay tree rooted on the requesting cloudlet after receive this request.
+
+The control server will make \emph{exitTree} request when the sending client finishes serving data or all the viewers in the same LAN with the cloudlet exited watching. Metadata server will first check the position of the requesting cloudlet in the overlay tree. If it's the root node, it destroys the whole tree. If it's from a non-root cloudlet, it will check whether it's a leaf cloudlet. A leaf cloudlet means that no other cloudlets depend on this cloudlet to get data of this particular stream. If it is a leaf cloudlet, it is safe to exit. If it is not, the metadata will not allow it to exit because once it stops serving the stream data, all its decendents in the subtree rooted on this cloudlet will need to be reconfigured to other cloudlets. This will stop the stream on those cloudlets for about 30 seconds. The metadata server will instead make that cloudlet as a dummy node in the overlay tree structure. The new coming cloudlets will not be scheduled to a dummy node. So the intermediate descendents of that node will never increase. We will exit that node when it becomes a leaf node. 
+
+When a cloudlet has a request from clients asking for a stream it does not have now, it will make a \emph{joinTree} request to the metadata server. The metadata server will respond with the cloudlet name of a cloudlet serving that stream. That cloudlet is chosen by a scheduling algorithm. That algorithm will be described in the next subsection. 
+
+Control server sends \emph{heartbeat} messages to the metadata server with its own status and stream status. This keeps the cloudlet alive in the metadata server. Whenever a cloudlet has not contacted the metadata server for a pre-defined time interval, it will mark this cloudlet as unavailable. New cloudlets will not be scheduled to an unavailable cloudlet. The metadata server will not delete the node representing that cloudlet in the overlay trees because this can best keep the subtree structure. 
+
 \subsection{Scheduling}
+Scheduling algorithm determins the overlay tree structure. The tree structure will then affect bandwidth consumption on WAN and latency. Our scheduling algorithm will favor bandwidth to latency as we explained in section 2. The general idea of this algorithm is to search from the root using breadth first search (BFS) to find the first node with enough available bandwidth for serving this stream. We use BFS because we want to find a cloudlet nearest to the root so that it has the smallest latency. In the cases of inconsistency and failures, the algorithm may find the cloudlet requesting to join tree has already been in the tree. In this case, we delete the old node and re-schedule the node to another node in the overlay tree that is not in the subtree rooted on that cloudlet in the old tree configuration. If the algorithm finds that no available nodes are there, it will randomly pick one node to serve the data. The algorithm is shown in the code snippet below. 
 
-\subsection{Overlay Tree Management}
+{\tt \small
+\begin{verbatim}
+Cloudlet schedule(Cloudlet cloudlet,
+              overlayTree tree) {
+    TreeNode node = tree.find(cloudlet);
+    Cloudlet ret = null;
+    if (node != null) {
+        ret = bfs(tree);
+        if(ret == null){
+            ret = randomPick(tree);
+        }
+    } 
+    else {
+        delete node from tree;
+        ret = schedule(cloudlet, tree);
+    }
+    return ret;
+}
 
+Cloudlet bfs(overlayTree tree) {
+    int streamBand = tree.getBand();
+    TreeNode node = tree.getRoot();
+    while(node != null) {
+        if (node.leftBand > streamBand) {
+            return node.getCloudlet();
+        }
+        node = tree.getNextBfsNode();
+    } 
+    return null;
+}
 
+\end{verbatim}
+}
 
+\section{Fault Tolerance}
+
+\subsection{Fault Sources}
+
+\subsection{Fault Tolerance Protocol}
+\begin{flushleft}
+asdadad
+
+\emph{\textbf cloudlet}\\
+asdadadaad
+\end{flushleft}
 
 
 
